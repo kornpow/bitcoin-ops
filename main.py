@@ -246,6 +246,8 @@ Examples:
                        help="Check wallet balance and available UTXOs")
     parser.add_argument("--utxo-index", type=int,
                        help="Index of UTXO to use (if multiple available)")
+    parser.add_argument("--allow-large-opreturn", action="store_true",
+                       help="Allow OP_RETURN data >80 bytes (may not relay on standard nodes)")
     
     args = parser.parse_args()
     
@@ -316,8 +318,25 @@ Examples:
     print(f"  Bytes: {op_return_data.hex()}")
     print(f"  Length: {len(op_return_data)} bytes")
     
+    if len(op_return_data) > 80 and not args.allow_large_opreturn:
+        print(f"\n✗ ERROR: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
+        print(f"\n  Bitcoin Core's default policy (-datacarriersize=80) rejects OP_RETURN >80 bytes")
+        print(f"  Most nodes and services (including mempool.space) won't relay these transactions")
+        print(f"\n  Solutions:")
+        print(f"    1. Shorten your message to ≤80 bytes")
+        print(f"    2. Use --allow-large-opreturn flag (transaction may not broadcast)")
+        print(f"    3. Broadcast to a node with higher -datacarriersize setting")
+        return
+    
     if len(op_return_data) > 80:
-        print(f"⚠️  Warning: OP_RETURN data is {len(op_return_data)} bytes (>80 may not be standard)")
+        print(f"⚠️  WARNING: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
+        print(f"  This transaction likely won't relay on standard nodes!")
+        print(f"  You'll need to broadcast to a custom node with -datacarriersize={len(op_return_data)} or higher")
+    
+    if len(op_return_data) > 10000:
+        print(f"\n✗ ERROR: OP_RETURN data is too large ({len(op_return_data)} bytes)")
+        print(f"  Maximum reasonable size is around 10KB")
+        return
     
     tx = builder.create_transaction(
         selected_utxo['txid'],
