@@ -170,13 +170,23 @@ class OPReturnTransactionBuilder:
         # Add OP_RETURN output
         # OP_RETURN opcode is 0x6a
         # For data <= 75 bytes: OP_RETURN <push_length> <data>
-        # For data > 75 bytes: OP_RETURN OP_PUSHDATA1 <length> <data>
+        # For data 76-255 bytes: OP_RETURN OP_PUSHDATA1 <length> <data>
+        # For data 256-65535 bytes: OP_RETURN OP_PUSHDATA2 <length_2bytes_LE> <data>
         if len(op_return_data) <= 75:
             op_return_script_bytes = bytes([0x6A, len(op_return_data)]) + op_return_data
-        else:
+        elif len(op_return_data) <= 255:
             # OP_PUSHDATA1 (0x4c) for data 76-255 bytes
             op_return_script_bytes = (
                 bytes([0x6A, 0x4C, len(op_return_data)]) + op_return_data
+            )
+        elif len(op_return_data) <= 65535:
+            # OP_PUSHDATA2 (0x4d) for data 256-65535 bytes
+            # Length is encoded as 2 bytes in little-endian
+            length_bytes = len(op_return_data).to_bytes(2, byteorder="little")
+            op_return_script_bytes = bytes([0x6A, 0x4D]) + length_bytes + op_return_data
+        else:
+            raise ValueError(
+                f"OP_RETURN data too large: {len(op_return_data)} bytes (max 65535)"
             )
 
         op_return_script = script.Script(op_return_script_bytes)
