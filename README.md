@@ -227,7 +227,7 @@ uv run main.py --data "Your data" --rpc-user yourusername --rpc-password yourpas
 ### Transaction Creation
 
 1. **UTXO Discovery**: Fetches available UTXOs from mempool.space API
-2. **Transaction Building**: 
+2. **Transaction Building**:
    - Creates a transaction with one input (selected UTXO)
    - Adds OP_RETURN output with your custom data (value = 0)
    - Calculates fee based on estimated transaction size and fee rate

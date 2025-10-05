@@ -8,10 +8,14 @@ import os
 import sys
 import argparse
 import requests
+from requests.exceptions import (
+    RequestException,
+    ConnectionError as RequestsConnectionError,
+)
 from typing import Optional, Tuple, List, Dict
 from embit import script, ec
 from embit.networks import NETWORKS
-from embit.transaction import Transaction, TransactionInput, TransactionOutput, SIGHASH
+from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from embit.psbt import PSBT
 from embit.finalizer import finalize_psbt
 
@@ -100,7 +104,7 @@ class UTXOManager:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
+        except RequestException as e:
             print(f"✗ Error fetching UTXOs: {e}")
             return []
 
@@ -112,7 +116,7 @@ class UTXOManager:
             response.raise_for_status()
             # Parse hex transaction string into Transaction object
             return Transaction.parse(bytes.fromhex(response.text.strip()))
-        except requests.exceptions.RequestException as e:
+        except RequestException as e:
             print(f"✗ Error fetching transaction: {e}")
             return None
         except Exception as e:
@@ -243,13 +247,13 @@ def main():
 Examples:
   # Show wallet address and check for funds
   python main.py --check-balance
-  
+
   # Create OP_RETURN with custom data
   python main.py --data "Hello Bitcoin!"
-  
+
   # Use specific UTXO (if you have multiple)
   python main.py --data "My message" --utxo-index 0
-  
+
   # Specify custom fee rate
   python main.py --data "Important data" --fee-rate 3
         """,
@@ -430,7 +434,7 @@ Examples:
             print("\n" + "=" * 80)
             print(f"Total OP_RETURN transactions: {len(op_return_txs)}")
 
-        except requests.exceptions.RequestException as e:
+        except RequestException as e:
             print(f"\n✗ Error fetching transaction history: {e}")
 
         return
@@ -442,9 +446,9 @@ Examples:
 
     if not utxos:
         print("\n⚠️  No funds available!")
-        print(f"\n📝 To get testnet coins, visit a faucet:")
-        print(f"   • https://testnet-faucet.mempool.co/")
-        print(f"   • https://coinfaucet.eu/en/btc-testnet/")
+        print("\n📝 To get testnet coins, visit a faucet:")
+        print("   • https://testnet-faucet.mempool.co/")
+        print("   • https://coinfaucet.eu/en/btc-testnet/")
         print(f"\n   Send coins to: {address}")
         return
 
@@ -493,27 +497,27 @@ Examples:
     if len(op_return_data) > 80 and not args.allow_large_opreturn:
         print(f"\n✗ ERROR: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
         print(
-            f"\n  Bitcoin Core's default policy (-datacarriersize=80) rejects OP_RETURN >80 bytes"
+            "\n  Bitcoin Core's default policy (-datacarriersize=80) rejects OP_RETURN >80 bytes"
         )
         print(
-            f"  Most nodes and services (including mempool.space) won't relay these transactions"
+            "  Most nodes and services (including mempool.space) won't relay these transactions"
         )
-        print(f"\n  Solutions:")
-        print(f"    1. Shorten your message to ≤80 bytes")
-        print(f"    2. Use --allow-large-opreturn flag (transaction may not broadcast)")
-        print(f"    3. Broadcast to a node with higher -datacarriersize setting")
+        print("\n  Solutions:")
+        print("    1. Shorten your message to ≤80 bytes")
+        print("    2. Use --allow-large-opreturn flag (transaction may not broadcast)")
+        print("    3. Broadcast to a node with higher -datacarriersize setting")
         return
 
     if len(op_return_data) > 80:
         print(f"⚠️  WARNING: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
-        print(f"  This transaction likely won't relay on standard nodes!")
+        print("  This transaction likely won't relay on standard nodes!")
         print(
             f"  You'll need to broadcast to a custom node with -datacarriersize={len(op_return_data)} or higher"
         )
 
     if len(op_return_data) > 10000:
         print(f"\n✗ ERROR: OP_RETURN data is too large ({len(op_return_data)} bytes)")
-        print(f"  Maximum reasonable size is around 10KB")
+        print("  Maximum reasonable size is around 10KB")
         return
 
     tx = builder.create_transaction(
@@ -603,34 +607,34 @@ Examples:
                             )
                     else:
                         txid = result.get("result", "")
-                        print(f"\n✓ Transaction broadcast successful via RPC!")
+                        print("\n✓ Transaction broadcast successful via RPC!")
                         print(f"  TXID: {txid}")
 
                         if args.network == "test":
-                            print(f"\n  View on mempool.space:")
+                            print("\n  View on mempool.space:")
                             print(f"  https://mempool.space/testnet/tx/{txid}")
                         else:
-                            print(f"\n  View on mempool.space:")
+                            print("\n  View on mempool.space:")
                             print(f"  https://mempool.space/tx/{txid}")
                 else:
-                    print(f"\n✗ RPC request failed!")
+                    print("\n✗ RPC request failed!")
                     print(f"  Status code: {response.status_code}")
                     print(f"  Response: {response.text}")
 
-            except requests.exceptions.ConnectionError:
-                print(f"\n✗ Connection error: Could not connect to Bitcoin Core RPC")
+            except RequestsConnectionError:
+                print("\n✗ Connection error: Could not connect to Bitcoin Core RPC")
                 print(
                     f"  URL: {rpc_url.replace(args.rpc_password if args.rpc_password else '', '****') if args.rpc_password else rpc_url}"
                 )
-                print(f"\n  Make sure:")
-                print(f"    1. Bitcoin Core is running")
-                print(f"    2. RPC server is enabled (server=1 in bitcoin.conf)")
-                print(f"    3. Credentials are correct")
+                print("\n  Make sure:")
+                print("    1. Bitcoin Core is running")
+                print("    2. RPC server is enabled (server=1 in bitcoin.conf)")
+                print("    3. Credentials are correct")
                 print(
                     f"    4. RPC port is correct ({port if 'port' in locals() else 'check your config'})"
                 )
 
-            except requests.exceptions.RequestException as e:
+            except RequestException as e:
                 print(f"\n✗ Network error during RPC broadcast: {e}")
 
         else:
@@ -654,17 +658,17 @@ Examples:
 
                 if response.status_code == 200:
                     txid = response.text.strip()
-                    print(f"\n✓ Transaction broadcast successful!")
+                    print("\n✓ Transaction broadcast successful!")
                     print(f"  TXID: {txid}")
 
                     if args.network == "test":
-                        print(f"\n  View on mempool.space:")
+                        print("\n  View on mempool.space:")
                         print(f"  https://mempool.space/testnet/tx/{txid}")
                     else:
-                        print(f"\n  View on mempool.space:")
+                        print("\n  View on mempool.space:")
                         print(f"  https://mempool.space/tx/{txid}")
                 else:
-                    print(f"\n✗ Broadcast failed!")
+                    print("\n✗ Broadcast failed!")
                     print(f"  Status code: {response.status_code}")
                     print(f"  Response: {response.text}")
 
@@ -673,13 +677,13 @@ Examples:
                         error_msg = response.text
                         if "scriptpubkey" in error_msg.lower():
                             print(
-                                f"\n  This error usually means the OP_RETURN data is too large (>80 bytes)"
+                                "\n  This error usually means the OP_RETURN data is too large (>80 bytes)"
                             )
                             print(f"  Your data is {len(op_return_data)} bytes")
-                    except:
+                    except Exception:
                         pass
 
-            except requests.exceptions.RequestException as e:
+            except RequestException as e:
                 print(f"\n✗ Network error during broadcast: {e}")
     else:
         # Show manual broadcast instructions
