@@ -196,8 +196,44 @@ Just copy the transaction hex and paste it at:
 
 ### Bitcoin Core RPC Setup
 
-To use local RPC broadcast, ensure your `bitcoin.conf` includes:
+Bitcoin Core supports two authentication methods for RPC:
+
+#### Option 1: Cookie Authentication (Default - Easiest)
+
+If you're running Bitcoin Core with default settings, it uses cookie-based authentication. The cookie file contains auto-generated credentials.
+
+**For Testnet:**
+```bash
+# macOS/Linux
+uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$(cat ~/.bitcoin/testnet3/.cookie | cut -d: -f2)"
+
+# macOS (alternative path)
+uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$(cat ~/Library/Application\ Support/Bitcoin/testnet3/.cookie | cut -d: -f2)"
 ```
+
+**For Mainnet:**
+```bash
+# macOS/Linux
+uv run main.py --data "Your message" --network main --rpc-user "__cookie__" --rpc-password "$(cat ~/.bitcoin/.cookie | cut -d: -f2)"
+
+# macOS (alternative path)
+uv run main.py --data "Your message" --network main --rpc-user "__cookie__" --rpc-password "$(cat ~/Library/Application\ Support/Bitcoin/.cookie | cut -d: -f2)"
+```
+
+**Cookie file locations:**
+- **Linux**: `~/.bitcoin/testnet3/.cookie` (testnet) or `~/.bitcoin/.cookie` (mainnet)
+- **macOS**: `~/Library/Application Support/Bitcoin/testnet3/.cookie` (testnet) or `~/Library/Application Support/Bitcoin/.cookie` (mainnet)
+- **Windows**: `%APPDATA%\Bitcoin\testnet3\.cookie` (testnet) or `%APPDATA%\Bitcoin\.cookie` (mainnet)
+
+The cookie file format is `__cookie__:long_random_hex_string`. The username is always `__cookie__` and the password is the part after the colon.
+
+**Note**: The cookie file is only present while Bitcoin Core is running and changes on each restart.
+
+#### Option 2: Username/Password Authentication
+
+For a persistent setup, add credentials to your `bitcoin.conf`:
+
+```conf
 server=1
 rpcuser=yourusername
 rpcpassword=yourpassword
@@ -206,6 +242,11 @@ rpcallowip=127.0.0.1
 # Optional: increase OP_RETURN limit (default is 80)
 datacarriersize=1000
 ```
+
+**Config file locations:**
+- **Linux**: `~/.bitcoin/bitcoin.conf`
+- **macOS**: `~/Library/Application Support/Bitcoin/bitcoin.conf`
+- **Windows**: `%APPDATA%\Bitcoin\bitcoin.conf`
 
 Then restart Bitcoin Core and use:
 ```bash
