@@ -248,6 +248,8 @@ Examples:
                        help="Index of UTXO to use (if multiple available)")
     parser.add_argument("--allow-large-opreturn", action="store_true",
                        help="Allow OP_RETURN data >80 bytes (may not relay on standard nodes)")
+    parser.add_argument("--broadcast", action="store_true",
+                       help="Automatically broadcast transaction to mempool.space")
     
     args = parser.parse_args()
     
@@ -357,15 +359,66 @@ Examples:
     print("\n" + "=" * 80)
     print("✓ Transaction created successfully!")
     print("=" * 80)
-    print(f"\nTransaction Hex:\n{final_tx.to_string()}")
+    
+    tx_hex = final_tx.to_string()
+    print(f"\nTransaction Hex:\n{tx_hex}")
     print("\n" + "=" * 80)
     
-    if args.network == "test":
-        print("\n📡 Broadcast this transaction at:")
-        print("   https://mempool.space/testnet/tx/push")
+    # Broadcast if requested
+    if args.broadcast:
+        print("\n⌛ Broadcasting transaction to mempool.space...")
+        
+        if args.network == "test":
+            broadcast_url = "https://mempool.space/testnet/api/tx"
+        else:
+            broadcast_url = "https://mempool.space/api/tx"
+            if not args.allow_large_opreturn or len(op_return_data) <= 80:
+                # Extra confirmation for mainnet
+                print("⚠️  WARNING: This will broadcast to MAINNET (real Bitcoin)!")
+                confirm = input("Type 'yes' to confirm: ")
+                if confirm.lower() != 'yes':
+                    print("Broadcast cancelled")
+                    return
+        
+        try:
+            response = requests.post(broadcast_url, data=tx_hex, timeout=10)
+            
+            if response.status_code == 200:
+                txid = response.text.strip()
+                print(f"\n✓ Transaction broadcast successful!")
+                print(f"  TXID: {txid}")
+                
+                if args.network == "test":
+                    print(f"\n  View on mempool.space:")
+                    print(f"  https://mempool.space/testnet/tx/{txid}")
+                else:
+                    print(f"\n  View on mempool.space:")
+                    print(f"  https://mempool.space/tx/{txid}")
+            else:
+                print(f"\n✗ Broadcast failed!")
+                print(f"  Status code: {response.status_code}")
+                print(f"  Response: {response.text}")
+                
+                # Try to parse error message
+                try:
+                    error_msg = response.text
+                    if "scriptpubkey" in error_msg.lower():
+                        print(f"\n  This error usually means the OP_RETURN data is too large (>80 bytes)")
+                        print(f"  Your data is {len(op_return_data)} bytes")
+                except:
+                    pass
+                    
+        except requests.exceptions.RequestException as e:
+            print(f"\n✗ Network error during broadcast: {e}")
     else:
-        print("\n⚠️  MAINNET TRANSACTION - Verify carefully before broadcasting!")
-        print("\n📡 Broadcast at: https://mempool.space/tx/push")
+        # Show manual broadcast instructions
+        if args.network == "test":
+            print("\n📡 To broadcast, run again with --broadcast flag, or visit:")
+            print("   https://mempool.space/testnet/tx/push")
+        else:
+            print("\n⚠️  MAINNET TRANSACTION - Verify carefully before broadcasting!")
+            print("\n📡 To broadcast, run again with --broadcast flag, or visit:")
+            print("   https://mempool.space/tx/push")
 
 
 if __name__ == "__main__":

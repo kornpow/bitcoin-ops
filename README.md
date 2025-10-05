@@ -87,6 +87,11 @@ uv run main.py --check-balance
 uv run main.py --data "Hello Bitcoin!"
 ```
 
+### Automatically broadcast to mempool.space
+```bash
+uv run main.py --data "GM Bitcoin!" --broadcast
+```
+
 ### Use a specific UTXO (if you have multiple)
 ```bash
 uv run main.py --data "My message" --utxo-index 0
@@ -111,13 +116,15 @@ uv run main.py --network main --data "Mainnet data" --fee-rate 5
 
 ```
 Options:
-  --wallet-file PATH       Path to wallet key file (default: wallet.key)
-  --network {test,main}    Bitcoin network (default: test)
-  --data TEXT              Data to include in OP_RETURN output
-  --fee-rate INT           Fee rate in sat/vB (default: 2)
-  --check-balance          Check wallet balance and available UTXOs
-  --utxo-index INT         Index of UTXO to use (if multiple available)
-  -h, --help               Show help message
+  --wallet-file PATH           Path to wallet key file (default: wallet.key)
+  --network {test,main}        Bitcoin network (default: test)
+  --data TEXT                  Data to include in OP_RETURN output
+  --fee-rate INT               Fee rate in sat/vB (default: 2)
+  --check-balance              Check wallet balance and available UTXOs
+  --utxo-index INT             Index of UTXO to use (if multiple available)
+  --allow-large-opreturn       Allow OP_RETURN data >80 bytes (may not relay)
+  --broadcast                  Automatically broadcast to mempool.space
+  -h, --help                   Show help message
 ```
 
 ## How It Works
