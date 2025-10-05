@@ -6,11 +6,14 @@ A Python tool for creating and signing Bitcoin transactions with OP_RETURN outpu
 
 - 🔑 **Automatic Key Management**: Generates and securely stores a Bitcoin private key on first run
 - 💰 **Automatic UTXO Discovery**: Fetches available UTXOs from your wallet using mempool.space API
+- 📜 **Transaction History**: View all historical OP_RETURN transactions from your wallet
 - 📝 **Custom OP_RETURN Data**: Embed any text data into the Bitcoin blockchain
 - ⚙️ **Configurable Fee Rates**: Set custom fee rates in sat/vB
 - 🔒 **Segwit Support**: Uses P2WPKH (native segwit) addresses for lower fees
 - 💸 **Dust Limit Handling**: Automatically handles change outputs below dust limit
 - 🧪 **Testnet & Mainnet Support**: Safe testing on testnet before using mainnet
+- 📡 **Multiple Broadcast Methods**: mempool.space API, local Bitcoin Core RPC, or manual
+- 🔧 **Large OP_RETURN Support**: Bypass 80-byte limit with local node configuration
 
 ## Requirements
 
@@ -53,6 +56,7 @@ This will:
 Visit a Bitcoin testnet faucet and send some coins to your address:
 - <https://testnet-faucet.mempool.co/>
 - <https://coinfaucet.eu/en/btc-testnet/>
+- <https://bitcoinfaucet.uo1.net/>
 
 ### 3. Create an OP_RETURN Transaction
 
@@ -71,15 +75,34 @@ This will:
 
 ### 4. Broadcast the Transaction
 
+**Option A: Using a Web Service**
+
 Copy the transaction hex and paste it at:
 - Testnet: <https://mempool.space/testnet/tx/push>
 - Mainnet: <https://mempool.space/tx/push>
+
+**Option B: Using a Local Bitcoin Node**
+
+If you're running a local Bitcoin node, broadcast directly using `bitcoin-cli`:
+```bash
+bitcoin-cli sendrawtransaction <transaction_hex>
+```
+
+For testnet:
+```bash
+bitcoin-cli -testnet sendrawtransaction <transaction_hex>
+```
 
 ## Usage Examples
 
 ### Check wallet balance
 ```bash
 uv run main.py --check-balance
+```
+
+### View historical OP_RETURN transactions
+```bash
+uv run main.py --history
 ```
 
 ### Create OP_RETURN with custom data
@@ -90,6 +113,18 @@ uv run main.py --data "Hello Bitcoin!"
 ### Automatically broadcast to mempool.space
 ```bash
 uv run main.py --data "GM Bitcoin!" --broadcast
+```
+
+### Broadcast to local Bitcoin Core node
+```bash
+# Using separate credentials
+uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass
+
+# Using full RPC URL
+uv run main.py --data "My message" --rpc-url http://user:pass@localhost:18332
+
+# Custom host and port
+uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass --rpc-host 192.168.1.100 --rpc-port 18332
 ```
 
 ### Use a specific UTXO (if you have multiple)
@@ -121,10 +156,60 @@ Options:
   --data TEXT                  Data to include in OP_RETURN output
   --fee-rate INT               Fee rate in sat/vB (default: 2)
   --check-balance              Check wallet balance and available UTXOs
+  --history                    Show all historical OP_RETURN transactions
   --utxo-index INT             Index of UTXO to use (if multiple available)
   --allow-large-opreturn       Allow OP_RETURN data >80 bytes (may not relay)
   --broadcast                  Automatically broadcast to mempool.space
+  --rpc-url RPC_URL            Bitcoin Core RPC URL (http://user:pass@host:port)
+  --rpc-user RPC_USER          Bitcoin Core RPC username
+  --rpc-password RPC_PASSWORD  Bitcoin Core RPC password
+  --rpc-host RPC_HOST          Bitcoin Core RPC host (default: localhost)
+  --rpc-port RPC_PORT          Bitcoin Core RPC port (18332 testnet, 8332 mainnet)
   -h, --help                   Show help message
+```
+
+## Broadcasting Options
+
+The tool supports three ways to broadcast your transaction:
+
+### 1. mempool.space API (easiest)
+```bash
+uv run main.py --data "My message" --broadcast
+```
+- No setup required
+- Works immediately
+- Limited to 80-byte OP_RETURN for standard relay
+
+### 2. Local Bitcoin Core RPC
+```bash
+uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass
+```
+- Requires Bitcoin Core running locally
+- Can handle larger OP_RETURN with custom `-datacarriersize`
+- More privacy (doesn't expose transaction to third party)
+- Full control over relay policy
+
+### 3. Manual broadcast
+Just copy the transaction hex and paste it at:
+- Testnet: https://mempool.space/testnet/tx/push
+- Mainnet: https://mempool.space/tx/push
+
+### Bitcoin Core RPC Setup
+
+To use local RPC broadcast, ensure your `bitcoin.conf` includes:
+```
+server=1
+rpcuser=yourusername
+rpcpassword=yourpassword
+rpcallowip=127.0.0.1
+
+# Optional: increase OP_RETURN limit (default is 80)
+datacarriersize=1000
+```
+
+Then restart Bitcoin Core and use:
+```bash
+uv run main.py --data "Your data" --rpc-user yourusername --rpc-password yourpassword
 ```
 
 ## How It Works

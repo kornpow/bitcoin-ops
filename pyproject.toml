@@ -8,3 +8,10 @@ dependencies = [
     "embit>=0.8.0",
     "requests>=2.32.5",
 ]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "ruff>=0.13.3",
+    "ty>=0.0.1a21",
+]
