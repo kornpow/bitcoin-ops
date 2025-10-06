@@ -332,15 +332,36 @@ class OPReturnTransactionBuilder:
         self.network = wallet_manager.network
         self.fee_rate = fee_rate  # satoshis per vbyte (can be fractional)
 
+    def _create_op_return_script(self, data: bytes) -> script.Script:
+        """Create an OP_RETURN script from data bytes"""
+        # OP_RETURN opcode is 0x6a
+        # For data <= 75 bytes: OP_RETURN <push_length> <data>
+        # For data 76-255 bytes: OP_RETURN OP_PUSHDATA1 <length> <data>
+        # For data 256-65535 bytes: OP_RETURN OP_PUSHDATA2 <length_2bytes_LE> <data>
+        if len(data) <= 75:
+            op_return_script_bytes = bytes([0x6A, len(data)]) + data
+        elif len(data) <= 255:
+            # OP_PUSHDATA1 (0x4c) for data 76-255 bytes
+            op_return_script_bytes = bytes([0x6A, 0x4C, len(data)]) + data
+        elif len(data) <= 65535:
+            # OP_PUSHDATA2 (0x4d) for data 256-65535 bytes
+            # Length is encoded as 2 bytes in little-endian
+            length_bytes = len(data).to_bytes(2, byteorder="little")
+            op_return_script_bytes = bytes([0x6A, 0x4D]) + length_bytes + data
+        else:
+            raise ValueError(f"OP_RETURN data too large: {len(data)} bytes (max 65535)")
+
+        return script.Script(op_return_script_bytes)
+
     def create_transaction(
         self,
         utxo_txid: str,
         utxo_vout: int,
         utxo_amount: int,
-        op_return_data: bytes,
+        op_return_data_list: List[bytes],
         prev_tx: Transaction,
     ) -> Transaction:
-        """Create an OP_RETURN transaction"""
+        """Create an OP_RETURN transaction with one or more OP_RETURN outputs"""
 
         # Create transaction
         tx = Transaction(version=2, locktime=0)
@@ -349,37 +370,23 @@ class OPReturnTransactionBuilder:
         txin = TransactionInput(bytes.fromhex(utxo_txid), utxo_vout)
         tx.vin.append(txin)
 
-        # Add OP_RETURN output
-        # OP_RETURN opcode is 0x6a
-        # For data <= 75 bytes: OP_RETURN <push_length> <data>
-        # For data 76-255 bytes: OP_RETURN OP_PUSHDATA1 <length> <data>
-        # For data 256-65535 bytes: OP_RETURN OP_PUSHDATA2 <length_2bytes_LE> <data>
-        if len(op_return_data) <= 75:
-            op_return_script_bytes = bytes([0x6A, len(op_return_data)]) + op_return_data
-        elif len(op_return_data) <= 255:
-            # OP_PUSHDATA1 (0x4c) for data 76-255 bytes
-            op_return_script_bytes = (
-                bytes([0x6A, 0x4C, len(op_return_data)]) + op_return_data
+        # Add OP_RETURN outputs
+        total_op_return_size = 0
+        for op_return_data in op_return_data_list:
+            op_return_script = self._create_op_return_script(op_return_data)
+            op_return_output = TransactionOutput(
+                value=0, script_pubkey=op_return_script
             )
-        elif len(op_return_data) <= 65535:
-            # OP_PUSHDATA2 (0x4d) for data 256-65535 bytes
-            # Length is encoded as 2 bytes in little-endian
-            length_bytes = len(op_return_data).to_bytes(2, byteorder="little")
-            op_return_script_bytes = bytes([0x6A, 0x4D]) + length_bytes + op_return_data
-        else:
-            raise ValueError(
-                f"OP_RETURN data too large: {len(op_return_data)} bytes (max 65535)"
-            )
-
-        op_return_script = script.Script(op_return_script_bytes)
-        op_return_output = TransactionOutput(value=0, script_pubkey=op_return_script)
-        tx.vout.append(op_return_output)
+            tx.vout.append(op_return_output)
+            total_op_return_size += 10 + len(
+                op_return_data
+            )  # ~10 bytes overhead per output
 
         # Calculate estimated size and fee
         # Base size: ~10 bytes overhead + input (~68 bytes for P2WPKH) + outputs
-        # OP_RETURN output: ~10 + len(data)
+        # OP_RETURN outputs: calculated above
         # Change output: ~31 bytes for P2WPKH
-        estimated_vsize = 10 + 68 + (10 + len(op_return_data)) + 31
+        estimated_vsize = 10 + 68 + total_op_return_size + 31
         # Fee can be fractional, but final amount must be integer sats
         fee = int(self.fee_rate * estimated_vsize)
 
@@ -467,7 +474,12 @@ Examples:
         choices=["test", "main"],
         help="Bitcoin network (default: test)",
     )
-    parser.add_argument("--data", type=str, help="Data to include in OP_RETURN output")
+    parser.add_argument(
+        "--data",
+        type=str,
+        action="append",
+        help="Data to include in OP_RETURN output (can be used multiple times for multiple OP_RETURN outputs)",
+    )
     parser.add_argument(
         "--fee-rate",
         type=float,
@@ -729,13 +741,43 @@ Examples:
     print("\n⌛ Building transaction...")
     builder = OPReturnTransactionBuilder(wallet_mgr, fee_rate=args.fee_rate)
 
-    op_return_data = args.data.encode("utf-8")
-    print(f'✓ OP_RETURN data: "{args.data}"')
-    print(f"  Bytes: {op_return_data.hex()}")
-    print(f"  Length: {len(op_return_data)} bytes")
+    # Convert all data strings to bytes
+    op_return_data_list = [d.encode("utf-8") for d in args.data]
 
-    if len(op_return_data) > 80 and not args.allow_large_opreturn:
-        print(f"\n✗ ERROR: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
+    # Display all OP_RETURN data
+    print(
+        f"✓ Creating transaction with {len(op_return_data_list)} OP_RETURN output(s):"
+    )
+    total_data_size = 0
+    for i, data in enumerate(op_return_data_list):
+        print(f'  [{i + 1}] Data: "{args.data[i]}"')
+        print(f"      Bytes: {data.hex()}")
+        print(f"      Length: {len(data)} bytes")
+        total_data_size += len(data)
+
+    print(f"\n  Total OP_RETURN data size: {total_data_size} bytes")
+
+    # Warn about multiple OP_RETURN outputs
+    if len(op_return_data_list) > 1:
+        print(
+            f"\n⚠️  WARNING: Transaction has {len(op_return_data_list)} OP_RETURN outputs"
+        )
+        print(
+            "  Bitcoin Core's default policy rejects multiple OP_RETURN outputs (multi-op-return)"
+        )
+        print("  This is a STANDARDNESS rule, not a consensus rule.")
+        print("\n  This transaction will NOT propagate on the standard network!")
+        print("\n  To broadcast, you need a custom Bitcoin Core node with:")
+        print("    -datacarriersize=<size>  (for total data size)")
+        print("    -permitbaremultisig=1    (allows multiple OP_RETURN)")
+        print("\n  Note: Most explorers and nodes will reject this transaction.")
+
+    # Check size limits for each OP_RETURN
+    max_data_size = max(len(d) for d in op_return_data_list)
+    if max_data_size > 80 and not args.allow_large_opreturn:
+        print(
+            f"\n✗ ERROR: One or more OP_RETURN outputs exceed 80 bytes (largest: {max_data_size} bytes)"
+        )
         print(
             "\n  Bitcoin Core's default policy (-datacarriersize=80) rejects OP_RETURN >80 bytes"
         )
@@ -743,20 +785,22 @@ Examples:
             "  Most nodes and services (including mempool.space) won't relay these transactions"
         )
         print("\n  Solutions:")
-        print("    1. Shorten your message to ≤80 bytes")
+        print("    1. Shorten your messages to ≤80 bytes each")
         print("    2. Use --allow-large-opreturn flag (transaction may not broadcast)")
         print("    3. Broadcast to a node with higher -datacarriersize setting")
         return
 
-    if len(op_return_data) > 80:
-        print(f"⚠️  WARNING: OP_RETURN data is {len(op_return_data)} bytes (>80 bytes)")
+    if max_data_size > 80:
+        print(
+            f"⚠️  WARNING: One or more OP_RETURN outputs exceed 80 bytes (largest: {max_data_size} bytes)"
+        )
         print("  This transaction likely won't relay on standard nodes!")
         print(
-            f"  You'll need to broadcast to a custom node with -datacarriersize={len(op_return_data)} or higher"
+            f"  You'll need to broadcast to a custom node with -datacarriersize={max_data_size} or higher"
         )
 
-    if len(op_return_data) > 10000:
-        print(f"\n✗ ERROR: OP_RETURN data is too large ({len(op_return_data)} bytes)")
+    if max_data_size > 10000:
+        print(f"\n✗ ERROR: OP_RETURN data is too large ({max_data_size} bytes)")
         print("  Maximum reasonable size is around 10KB")
         return
 
@@ -764,7 +808,7 @@ Examples:
         selected_utxo["txid"],
         selected_utxo["vout"],
         selected_utxo["value"],
-        op_return_data,
+        op_return_data_list,
         prev_tx,
     )
 
@@ -885,7 +929,7 @@ Examples:
                 broadcast_url = "https://mempool.space/testnet/api/tx"
             else:
                 broadcast_url = "https://mempool.space/api/tx"
-                if not args.allow_large_opreturn or len(op_return_data) <= 80:
+                if not args.allow_large_opreturn or max_data_size <= 80:
                     # Extra confirmation for mainnet
                     print("⚠️  WARNING: This will broadcast to MAINNET (real Bitcoin)!")
                     confirm = input("Type 'yes' to confirm: ")
@@ -919,7 +963,7 @@ Examples:
                             print(
                                 "\n  This error usually means the OP_RETURN data is too large (>80 bytes)"
                             )
-                            print(f"  Your data is {len(op_return_data)} bytes")
+                            print(f"  Largest OP_RETURN is {max_data_size} bytes")
                     except Exception:
                         pass
 
