@@ -131,6 +131,19 @@ class UTXOManager:
         except RequestException:
             return None
 
+    def _print_txindex_warning(self) -> None:
+        """Print warning message about txindex not being enabled"""
+        print("\n✗ ERROR: txindex is not enabled on your Bitcoin Core node")
+        print("\n  This tool requires txindex=1 when using RPC mode.")
+        print("\n  To enable txindex:")
+        print("    1. Add 'txindex=1' to your bitcoin.conf")
+        print("    2. Restart Bitcoin Core (it will reindex the blockchain)")
+        print("    3. Wait for reindexing to complete (may take several hours)")
+        print("\n  Or run without RPC flags to use mempool.space API only")
+        print(
+            "\n  Alternatively, use --rpc-only for slow scantxoutset mode (no txindex needed)"
+        )
+
     def check_txindex_enabled(self) -> bool:
         """Check if txindex is enabled on the Bitcoin Core node"""
         if not self.rpc_url:
@@ -139,16 +152,14 @@ class UTXOManager:
         # Try to get blockchain info which includes txindex status
         result = self._rpc_call("getblockchaininfo", [])
         if result and "blocks" in result:
-            # Node is accessible, check if we can fetch a random old transaction
-            # This is a better test than getblockchaininfo which doesn't always report txindex
-            # Try to fetch the genesis block coinbase (always exists)
-            test_result = self._rpc_call(
-                "getrawtransaction",
-                [
-                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
-                    False,
-                ],
+            # Node is accessible, check if we can fetch a non-coinbase transaction
+            # Use a known testnet transaction (not genesis/coinbase which can't be fetched)
+            # This is one of the user's successful OP_RETURN transactions from history
+            test_txid = (
+                "63611617ee33c761c2c9586d0f998baa16bfd876b703921a6a1b31c2933abf64"
             )
+            test_result = self._rpc_call("getrawtransaction", [test_txid, False])
+
             if test_result:
                 return True
             else:
@@ -571,16 +582,7 @@ Examples:
     if use_rpc and not rpc_only:
         print("\n⌛ Checking Bitcoin Core configuration...")
         if not utxo_mgr.check_txindex_enabled():
-            print("\n✗ ERROR: txindex is not enabled on your Bitcoin Core node")
-            print("\n  This tool requires txindex=1 when using RPC mode.")
-            print("\n  To enable txindex:")
-            print("    1. Add 'txindex=1' to your bitcoin.conf")
-            print("    2. Restart Bitcoin Core (it will reindex the blockchain)")
-            print("    3. Wait for reindexing to complete (may take several hours)")
-            print("\n  Or run without RPC flags to use mempool.space API only")
-            print(
-                "\n  Alternatively, use --rpc-only for slow scantxoutset mode (no txindex needed)"
-            )
+            utxo_mgr._print_txindex_warning()
             return
         print("  ✓ txindex is enabled")
 
