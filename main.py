@@ -327,10 +327,10 @@ class UTXOManager:
 class OPReturnTransactionBuilder:
     """Builds and signs OP_RETURN transactions"""
 
-    def __init__(self, wallet_manager: WalletManager, fee_rate: int = 2):
+    def __init__(self, wallet_manager: WalletManager, fee_rate: float = 2.0):
         self.wallet = wallet_manager
         self.network = wallet_manager.network
-        self.fee_rate = fee_rate  # satoshis per vbyte
+        self.fee_rate = fee_rate  # satoshis per vbyte (can be fractional)
 
     def create_transaction(
         self,
@@ -380,7 +380,12 @@ class OPReturnTransactionBuilder:
         # OP_RETURN output: ~10 + len(data)
         # Change output: ~31 bytes for P2WPKH
         estimated_vsize = 10 + 68 + (10 + len(op_return_data)) + 31
-        fee = self.fee_rate * estimated_vsize
+        # Fee can be fractional, but final amount must be integer sats
+        fee = int(self.fee_rate * estimated_vsize)
+
+        # Ensure minimum fee of 1 sat (for very low fee rates)
+        if fee < 1:
+            fee = 1
 
         # Calculate change
         change_amount = utxo_amount - fee
@@ -464,7 +469,10 @@ Examples:
     )
     parser.add_argument("--data", type=str, help="Data to include in OP_RETURN output")
     parser.add_argument(
-        "--fee-rate", type=int, default=2, help="Fee rate in sat/vB (default: 2)"
+        "--fee-rate",
+        type=float,
+        default=2.0,
+        help="Fee rate in sat/vB (default: 2.0, supports fractional rates like 0.5)",
     )
     parser.add_argument(
         "--check-balance",
