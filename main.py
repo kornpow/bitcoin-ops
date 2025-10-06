@@ -90,16 +90,101 @@ class WalletManager:
 class UTXOManager:
     """Manages UTXO fetching and validation"""
 
-    def __init__(self, network_name: str = "test"):
+    def __init__(
+        self,
+        network_name: str = "test",
+        rpc_url: Optional[str] = None,
+        use_rpc: bool = False,
+    ):
         self.network_name = network_name
+        self.use_rpc = use_rpc
+        self.rpc_url = rpc_url
+
         if network_name == "test":
             self.api_base = "https://mempool.space/testnet/api"
         else:
             self.api_base = "https://mempool.space/api"
 
+    def _rpc_call(self, method: str, params: List, timeout: int = 10) -> Optional[Dict]:
+        """Make an RPC call to Bitcoin Core"""
+        if not self.rpc_url:
+            return None
+
+        try:
+            payload = {
+                "jsonrpc": "1.0",
+                "id": "bitcoin-ops",
+                "method": method,
+                "params": params,
+            }
+            response = requests.post(self.rpc_url, json=payload, timeout=timeout)
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("error"):
+                    print(f"✗ RPC error: {result['error']}")
+                    return None
+                return result.get("result")
+            return None
+        except RequestException as e:
+            print(f"✗ RPC request failed: {e}")
+            return None
+
     def fetch_utxos(self, address: str) -> List[Dict]:
+        """Fetch all UTXOs for an address from RPC or mempool.space API"""
+        if self.use_rpc and self.rpc_url:
+            return self._fetch_utxos_rpc(address)
+        else:
+            return self._fetch_utxos_api(address)
+
+    def _fetch_utxos_rpc(self, address: str) -> List[Dict]:
+        """Fetch UTXOs using Bitcoin Core RPC"""
+        try:
+            print(
+                "  Using Bitcoin Core RPC (this will use mempool.space for UTXO discovery)..."
+            )
+
+            # Note: We use mempool.space to find UTXOs since scantxoutset is too slow
+            # and listunspent requires the address to be imported into the wallet.
+            # For transaction fetching and broadcasting, we'll still use RPC.
+            print("  → Getting UTXO list from mempool.space (faster)...")
+            utxos = self._fetch_utxos_api(address)
+
+            # If we found UTXOs via API, verify they exist via RPC
+            if utxos and self.rpc_url:
+                print("  → Verifying UTXOs with local node...")
+                verified_utxos = []
+                for utxo in utxos:
+                    # Try to get the transaction via RPC to verify it exists locally
+                    tx_result = self._rpc_call(
+                        "getrawtransaction", [utxo["txid"], True]
+                    )
+                    if tx_result:
+                        # UTXO exists in local node
+                        verified_utxos.append(utxo)
+
+                if verified_utxos:
+                    print(
+                        f"  ✓ Verified {len(verified_utxos)}/{len(utxos)} UTXOs exist in local node"
+                    )
+                    return verified_utxos
+                else:
+                    print(
+                        "  ⚠️  Warning: UTXOs not found in local node (may not be fully synced)"
+                    )
+                    print("  Using mempool.space data anyway...")
+
+            return utxos
+
+        except Exception as e:
+            print(f"  ✗ RPC error: {e}")
+            print("  Falling back to mempool.space API only...")
+            return self._fetch_utxos_api(address)
+
+    def _fetch_utxos_api(self, address: str) -> List[Dict]:
         """Fetch all UTXOs for an address from mempool.space API"""
         try:
+            print("  Using mempool.space API...")
             url = f"{self.api_base}/address/{address}/utxo"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -109,7 +194,29 @@ class UTXOManager:
             return []
 
     def fetch_transaction(self, txid: str) -> Optional[Transaction]:
-        """Fetch transaction by txid"""
+        """Fetch transaction by txid from RPC or API"""
+        if self.use_rpc and self.rpc_url:
+            return self._fetch_transaction_rpc(txid)
+        else:
+            return self._fetch_transaction_api(txid)
+
+    def _fetch_transaction_rpc(self, txid: str) -> Optional[Transaction]:
+        """Fetch transaction using Bitcoin Core RPC"""
+        try:
+            result = self._rpc_call("getrawtransaction", [txid, False])
+            if result:
+                return Transaction.parse(bytes.fromhex(result))
+            # If RPC failed (e.g., txindex not enabled), fall back to API
+            print(
+                f"  Transaction {txid[:16]}... not in local node, using mempool.space..."
+            )
+            return self._fetch_transaction_api(txid)
+        except Exception:
+            print("  RPC fetch failed, using mempool.space...")
+            return self._fetch_transaction_api(txid)
+
+    def _fetch_transaction_api(self, txid: str) -> Optional[Transaction]:
+        """Fetch transaction by txid from mempool.space API"""
         try:
             url = f"{self.api_base}/tx/{txid}/hex"
             response = requests.get(url, timeout=10)
@@ -339,8 +446,23 @@ Examples:
     print(f"\n{'Testnet' if args.network == 'test' else 'Mainnet'} Address: {address}")
     print("=" * 80)
 
+    # Build RPC URL if credentials provided
+    rpc_url = None
+    use_rpc = False
+    if args.rpc_url:
+        rpc_url = args.rpc_url
+        use_rpc = True
+    elif args.rpc_user and args.rpc_password:
+        # Default ports
+        if args.rpc_port:
+            port = args.rpc_port
+        else:
+            port = 18332 if args.network == "test" else 8332
+        rpc_url = f"http://{args.rpc_user}:{args.rpc_password}@{args.rpc_host}:{port}"
+        use_rpc = True
+
     # Initialize UTXO manager
-    utxo_mgr = UTXOManager(args.network)
+    utxo_mgr = UTXOManager(args.network, rpc_url=rpc_url, use_rpc=use_rpc)
 
     # Check if history mode
     if args.history:
