@@ -95,10 +95,12 @@ class UTXOManager:
         network_name: str = "test",
         rpc_url: Optional[str] = None,
         use_rpc: bool = False,
+        rpc_only: bool = False,
     ):
         self.network_name = network_name
         self.use_rpc = use_rpc
         self.rpc_url = rpc_url
+        self.rpc_only = rpc_only
 
         if network_name == "test":
             self.api_base = "https://mempool.space/testnet/api"
@@ -122,13 +124,36 @@ class UTXOManager:
             if response.status_code == 200:
                 result = response.json()
                 if result.get("error"):
-                    print(f"✗ RPC error: {result['error']}")
+                    # Don't print error here, let caller handle it
                     return None
                 return result.get("result")
             return None
-        except RequestException as e:
-            print(f"✗ RPC request failed: {e}")
+        except RequestException:
             return None
+
+    def check_txindex_enabled(self) -> bool:
+        """Check if txindex is enabled on the Bitcoin Core node"""
+        if not self.rpc_url:
+            return False
+
+        # Try to get blockchain info which includes txindex status
+        result = self._rpc_call("getblockchaininfo", [])
+        if result and "blocks" in result:
+            # Node is accessible, check if we can fetch a random old transaction
+            # This is a better test than getblockchaininfo which doesn't always report txindex
+            # Try to fetch the genesis block coinbase (always exists)
+            test_result = self._rpc_call(
+                "getrawtransaction",
+                [
+                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
+                    False,
+                ],
+            )
+            if test_result:
+                return True
+            else:
+                return False
+        return False
 
     def fetch_utxos(self, address: str) -> List[Dict]:
         """Fetch all UTXOs for an address from RPC or mempool.space API"""
@@ -140,46 +165,86 @@ class UTXOManager:
     def _fetch_utxos_rpc(self, address: str) -> List[Dict]:
         """Fetch UTXOs using Bitcoin Core RPC"""
         try:
-            print(
-                "  Using Bitcoin Core RPC (this will use mempool.space for UTXO discovery)..."
-            )
+            if self.rpc_only:
+                # Use scantxoutset to find UTXOs (RPC only mode)
+                print("  Using Bitcoin Core RPC only (scantxoutset)...")
+                print(
+                    "  ⚠️  Warning: This may take 30-60 seconds to scan the UTXO set..."
+                )
 
-            # Note: We use mempool.space to find UTXOs since scantxoutset is too slow
-            # and listunspent requires the address to be imported into the wallet.
-            # For transaction fetching and broadcasting, we'll still use RPC.
-            print("  → Getting UTXO list from mempool.space (faster)...")
-            utxos = self._fetch_utxos_api(address)
+                # Use scantxoutset to find UTXOs for this address
+                result = self._rpc_call(
+                    "scantxoutset",
+                    ["start", [f"addr({address})"]],
+                    timeout=120,  # Increase timeout for scantxoutset
+                )
 
-            # If we found UTXOs via API, verify they exist via RPC
-            if utxos and self.rpc_url:
-                print("  → Verifying UTXOs with local node...")
-                verified_utxos = []
-                for utxo in utxos:
-                    # Try to get the transaction via RPC to verify it exists locally
-                    tx_result = self._rpc_call(
-                        "getrawtransaction", [utxo["txid"], True]
+                if not result:
+                    print("  ✗ scantxoutset failed or returned no results")
+                    return []
+
+                # Convert scantxoutset format to our format
+                utxos = []
+                for unspent in result.get("unspents", []):
+                    utxos.append(
+                        {
+                            "txid": unspent["txid"],
+                            "vout": unspent["vout"],
+                            "value": int(
+                                unspent["amount"] * 100_000_000
+                            ),  # BTC to sats
+                            "status": {
+                                "confirmed": True
+                            },  # scantxoutset only returns confirmed
+                        }
                     )
-                    if tx_result:
-                        # UTXO exists in local node
-                        verified_utxos.append(utxo)
 
-                if verified_utxos:
-                    print(
-                        f"  ✓ Verified {len(verified_utxos)}/{len(utxos)} UTXOs exist in local node"
-                    )
-                    return verified_utxos
-                else:
-                    print(
-                        "  ⚠️  Warning: UTXOs not found in local node (may not be fully synced)"
-                    )
-                    print("  Using mempool.space data anyway...")
+                print(f"  ✓ Found {len(utxos)} UTXOs via scantxoutset")
+                return utxos
+            else:
+                # Hybrid mode: use mempool.space for discovery, RPC for verification
+                print(
+                    "  Using Bitcoin Core RPC (hybrid mode with mempool.space for discovery)..."
+                )
 
-            return utxos
+                # Note: We use mempool.space to find UTXOs since scantxoutset is slow
+                # and listunspent requires the address to be imported into the wallet.
+                # For transaction fetching and broadcasting, we'll still use RPC.
+                print("  → Getting UTXO list from mempool.space (faster)...")
+                utxos = self._fetch_utxos_api(address)
+
+                # If we found UTXOs via API, verify they exist via RPC
+                if utxos and self.rpc_url:
+                    print("  → Verifying UTXOs with local node...")
+                    verified_utxos = []
+                    for utxo in utxos:
+                        # Try to get the transaction via RPC to verify it exists locally
+                        tx_result = self._rpc_call(
+                            "getrawtransaction", [utxo["txid"], True]
+                        )
+                        if tx_result:
+                            # UTXO exists in local node
+                            verified_utxos.append(utxo)
+
+                    if verified_utxos:
+                        print(
+                            f"  ✓ Verified {len(verified_utxos)}/{len(utxos)} UTXOs exist in local node"
+                        )
+                        return verified_utxos
+                    else:
+                        print(
+                            "  ⚠️  Warning: UTXOs not found in local node (may not be fully synced)"
+                        )
+                        print("  Using mempool.space data anyway...")
+
+                return utxos
 
         except Exception as e:
             print(f"  ✗ RPC error: {e}")
-            print("  Falling back to mempool.space API only...")
-            return self._fetch_utxos_api(address)
+            if not self.rpc_only:
+                print("  Falling back to mempool.space API only...")
+                return self._fetch_utxos_api(address)
+            return []
 
     def _fetch_utxos_api(self, address: str) -> List[Dict]:
         """Fetch all UTXOs for an address from mempool.space API"""
@@ -201,19 +266,29 @@ class UTXOManager:
             return self._fetch_transaction_api(txid)
 
     def _fetch_transaction_rpc(self, txid: str) -> Optional[Transaction]:
-        """Fetch transaction using Bitcoin Core RPC"""
+        """Fetch transaction using Bitcoin Core RPC (requires txindex=1)"""
         try:
             result = self._rpc_call("getrawtransaction", [txid, False])
             if result:
                 return Transaction.parse(bytes.fromhex(result))
-            # If RPC failed (e.g., txindex not enabled), fall back to API
+
+            # If RPC failed, txindex is likely not enabled
             print(
-                f"  Transaction {txid[:16]}... not in local node, using mempool.space..."
+                f"\n✗ ERROR: Could not fetch transaction {txid[:16]}... from local node"
             )
-            return self._fetch_transaction_api(txid)
-        except Exception:
-            print("  RPC fetch failed, using mempool.space...")
-            return self._fetch_transaction_api(txid)
+            print(
+                "  This usually means txindex is not enabled in your Bitcoin Core node."
+            )
+            print("\n  To enable txindex:")
+            print("    1. Add 'txindex=1' to your bitcoin.conf")
+            print("    2. Restart Bitcoin Core (it will reindex the blockchain)")
+            print("    3. Wait for reindexing to complete")
+            print("\n  Or run without RPC flags to use mempool.space API only")
+            return None
+        except Exception as e:
+            print(f"\n✗ RPC transaction fetch failed: {e}")
+            print("  Make sure txindex=1 is enabled in bitcoin.conf")
+            return None
 
     def _fetch_transaction_api(self, txid: str) -> Optional[Transaction]:
         """Fetch transaction by txid from mempool.space API"""
@@ -432,6 +507,11 @@ Examples:
         type=int,
         help="Bitcoin Core RPC port (default: 8332 for mainnet, 18332 for testnet)",
     )
+    parser.add_argument(
+        "--rpc-only",
+        action="store_true",
+        help="Use ONLY local Bitcoin Core RPC (scantxoutset for UTXO discovery, slower but no external API)",
+    )
 
     args = parser.parse_args()
 
@@ -449,6 +529,7 @@ Examples:
     # Build RPC URL if credentials provided
     rpc_url = None
     use_rpc = False
+    rpc_only = args.rpc_only
     if args.rpc_url:
         rpc_url = args.rpc_url
         use_rpc = True
@@ -462,7 +543,26 @@ Examples:
         use_rpc = True
 
     # Initialize UTXO manager
-    utxo_mgr = UTXOManager(args.network, rpc_url=rpc_url, use_rpc=use_rpc)
+    utxo_mgr = UTXOManager(
+        args.network, rpc_url=rpc_url, use_rpc=use_rpc, rpc_only=rpc_only
+    )
+
+    # If using RPC, check that txindex is enabled
+    if use_rpc and not rpc_only:
+        print("\n⌛ Checking Bitcoin Core configuration...")
+        if not utxo_mgr.check_txindex_enabled():
+            print("\n✗ ERROR: txindex is not enabled on your Bitcoin Core node")
+            print("\n  This tool requires txindex=1 when using RPC mode.")
+            print("\n  To enable txindex:")
+            print("    1. Add 'txindex=1' to your bitcoin.conf")
+            print("    2. Restart Bitcoin Core (it will reindex the blockchain)")
+            print("    3. Wait for reindexing to complete (may take several hours)")
+            print("\n  Or run without RPC flags to use mempool.space API only")
+            print(
+                "\n  Alternatively, use --rpc-only for slow scantxoutset mode (no txindex needed)"
+            )
+            return
+        print("  ✓ txindex is enabled")
 
     # Check if history mode
     if args.history:
