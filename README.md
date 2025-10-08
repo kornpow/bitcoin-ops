@@ -190,9 +190,11 @@ uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass
 - Full control over relay policy
 
 ### 3. Manual broadcast
-Just copy the transaction hex and paste it at:
+Copy the transaction hex from the output and paste it at:
 - Testnet: https://mempool.space/testnet/tx/push
 - Mainnet: https://mempool.space/tx/push
+
+**Tip:** Use the `--broadcast` flag to automatically broadcast to mempool.space API instead of manual copy/paste.
 
 ### Bitcoin Core RPC Setup
 
@@ -204,20 +206,14 @@ If you're running Bitcoin Core with default settings, it uses cookie-based authe
 
 **For Testnet:**
 ```bash
-# macOS/Linux
-uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$(cat ~/.bitcoin/testnet3/.cookie | cut -d: -f2)"
+# Extract the cookie password once (Linux/macOS)
+COOKIE_PASS=$(cut -d: -f2 ~/.bitcoin/testnet3/.cookie)
 
-# macOS (alternative path)
-uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$(cat ~/Library/Application\ Support/Bitcoin/testnet3/.cookie | cut -d: -f2)"
-```
+# Or on macOS with alternative path
+COOKIE_PASS=$(cut -d: -f2 ~/Library/Application\ Support/Bitcoin/testnet3/.cookie)
 
-**For Mainnet:**
-```bash
-# macOS/Linux
-uv run main.py --data "Your message" --network main --rpc-user "__cookie__" --rpc-password "$(cat ~/.bitcoin/.cookie | cut -d: -f2)"
-
-# macOS (alternative path)
-uv run main.py --data "Your message" --network main --rpc-user "__cookie__" --rpc-password "$(cat ~/Library/Application\ Support/Bitcoin/.cookie | cut -d: -f2)"
+# Now use it for your transactions
+uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$COOKIE_PASS"
 ```
 
 **Cookie file locations:**
@@ -251,6 +247,98 @@ datacarriersize=1000
 Then restart Bitcoin Core and use:
 ```bash
 uv run main.py --data "Your data" --rpc-user yourusername --rpc-password yourpassword
+```
+
+### Bitcoin Core Mempool Policy Configuration
+
+These configuration options control how your Bitcoin Core node handles OP_RETURN transactions and mempool relay policies:
+
+#### Non-Standard Transaction Policy Options
+
+```conf
+# Enable or disable relaying of OP_RETURN transactions (default: 1)
+datacarrier=1
+
+# Maximum size of OP_RETURN data in bytes (default: 80)
+# Increase this to relay/accept larger OP_RETURN transactions
+datacarriersize=1000
+
+# Allow relaying bare multisig outputs (default: 1)
+# Bare multisig = multisig not wrapped in P2SH/P2WSH
+# This is necessary to have multiple op-returns in a single txn
+permitbaremultisig=1
+
+# Allow relaying non-standard transactions (default: 0 on mainnet, 1 on testnet)
+# Includes large OP_RETURN, unusual script types, etc.
+# Only affects relay, not mining policy
+acceptnonstdtxn=1
+```
+
+**Key Points:**
+- **Standard relay limit**: By default, most testnet nodes relay OP_RETURN up to 80 bytes
+- **Local node benefits**: With a local node, you can increase `datacarriersize` to handle larger data
+- **Network propagation**: Transactions >80 bytes may not propagate well across the network
+- **Mining**: Even with custom settings, miners still control what gets into blocks
+
+#### General Mempool Options
+
+```conf
+# Maximum mempool size in MB (default: 300)
+maxmempool=500
+
+# Minimum relay transaction fee in BTC/kB (default: 0.00001)
+minrelaytxfee=0.00001
+
+# Enable full Replace-By-Fee (default: 0)
+mempoolfullrbf=1
+
+# Reject transactions with high fees (spam protection, default: 0)
+blockmaxweight=3996000
+```
+
+#### Complete Example Configuration
+
+Here's a recommended `bitcoin.conf` for OP_RETURN development:
+
+```conf
+# Basic RPC setup
+server=1
+rpcuser=yourusername
+rpcpassword=yourpassword
+rpcallowip=127.0.0.1
+
+# Non-standard transaction policy
+datacarrier=1
+datacarriersize=1000
+permitbaremultisig=1
+acceptnonstdtxn=1
+
+# Mempool settings
+maxmempool=500
+minrelaytxfee=0.00001
+
+# For testnet
+testnet=1
+```
+
+**After changing `bitcoin.conf`:**
+1. Save the file
+2. Restart Bitcoin Core completely
+3. Verify settings: `bitcoin-cli getmempoolinfo`
+
+#### Runtime Commands
+
+You can also check current mempool policy at runtime:
+
+```bash
+# Check mempool information
+bitcoin-cli getmempoolinfo
+
+# Check network info (includes relay fees)
+bitcoin-cli getnetworkinfo
+
+# Test if a transaction would be accepted (without actually broadcasting)
+bitcoin-cli testmempoolaccept '["<hex_transaction>"]'
 ```
 
 ## How It Works
