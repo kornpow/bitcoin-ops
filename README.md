@@ -4,7 +4,7 @@ A Python tool for creating and signing Bitcoin transactions with OP_RETURN outpu
 
 ## Features
 
-- 🔑 **Automatic Key Management**: Generates and securely stores a Bitcoin private key on first run
+- 🔑 **Automatic Key Management**: Generates and (in)-securely stores a Bitcoin private key on first run
 - 💰 **Automatic UTXO Discovery**: Fetches available UTXOs from your wallet using mempool.space API
 - 📜 **Transaction History**: View all historical OP_RETURN transactions from your wallet
 - 📝 **Custom OP_RETURN Data**: Embed any text data into the Bitcoin blockchain
@@ -63,7 +63,7 @@ Visit a Bitcoin testnet faucet and send some coins to your address:
 Once you have funds, create a transaction with custom data:
 
 ```bash
-uv run main.py --data "Hello Bitcoin!"
+uv run main.py --data "Remember Me, Bitcoin Ops!"
 ```
 
 This will:
