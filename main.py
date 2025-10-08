@@ -466,18 +466,28 @@ Examples:
   # Create OP_RETURN with custom data
   python main.py --data "Hello Bitcoin!"
 
+  # Use a custom wallet file location
+  python main.py --wallet-file ~/.bitcoin-wallets/my-wallet.key --check-balance
+
+  # Use environment variable for wallet location
+  export BITCOIN_OPS_WALLET=~/wallets/testnet.key
+  python main.py --check-balance
+
   # Use specific UTXO (if you have multiple)
   python main.py --data "My message" --utxo-index 0
 
   # Specify custom fee rate
   python main.py --data "Important data" --fee-rate 3
+
+Environment Variables:
+  BITCOIN_OPS_WALLET    Path to wallet file (overrides --wallet-file)
         """,
     )
 
     parser.add_argument(
         "--wallet-file",
         default="wallet.key",
-        help="Path to wallet key file (default: wallet.key)",
+        help="Path to wallet key file (default: wallet.key, supports ~ expansion)",
     )
     parser.add_argument(
         "--network",
@@ -546,12 +556,27 @@ Examples:
 
     args = parser.parse_args()
 
+    # Resolve wallet file path - support environment variable and expand paths
+    wallet_file = os.getenv("BITCOIN_OPS_WALLET", args.wallet_file)
+    wallet_file = os.path.expanduser(wallet_file)  # Expand ~ to home directory
+    wallet_file = os.path.abspath(wallet_file)  # Convert to absolute path
+
+    # Create parent directory if it doesn't exist
+    wallet_dir = os.path.dirname(wallet_file)
+    if wallet_dir and not os.path.exists(wallet_dir):
+        try:
+            os.makedirs(wallet_dir, mode=0o700)
+            print(f"✓ Created wallet directory: {wallet_dir}")
+        except OSError as e:
+            print(f"✗ Error creating wallet directory: {e}")
+            return
+
     # Initialize wallet
     print("=" * 80)
     print("Bitcoin OP_RETURN Transaction Creator")
     print("=" * 80)
 
-    wallet_mgr = WalletManager(args.wallet_file, args.network)
+    wallet_mgr = WalletManager(wallet_file, args.network)
     priv_key, pub_key, address = wallet_mgr.load_or_generate_key()
 
     print(f"\n{'Testnet' if args.network == 'test' else 'Mainnet'} Address: {address}")

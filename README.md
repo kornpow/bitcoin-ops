@@ -139,8 +139,23 @@ uv run main.py --data "Important data" --fee-rate 3
 
 ### Use custom wallet file
 ```bash
+# Specify a custom wallet file location
 uv run main.py --wallet-file my-wallet.key --data "Hello!"
+
+# Use a wallet in a different directory (supports ~ expansion)
+uv run main.py --wallet-file ~/.bitcoin-wallets/testnet.key --check-balance
+
+# Use environment variable for wallet location
+export BITCOIN_OPS_WALLET=~/wallets/testnet.key
+uv run main.py --check-balance
 ```
+
+**Note**: The wallet file path supports:
+- Relative paths (e.g., `wallet.key`, `wallets/my-wallet.key`)
+- Absolute paths (e.g., `/home/user/wallets/my-wallet.key`)
+- Tilde expansion (e.g., `~/my-wallet.key`)
+- Environment variable override via `BITCOIN_OPS_WALLET`
+- Parent directories are automatically created with secure permissions (0700)
 
 ### Use mainnet (⚠️ BE CAREFUL!)
 ```bash
@@ -151,10 +166,10 @@ uv run main.py --network main --data "Mainnet data" --fee-rate 5
 
 ```
 Options:
-  --wallet-file PATH           Path to wallet key file (default: wallet.key)
+  --wallet-file PATH           Path to wallet key file (default: wallet.key, supports ~ expansion)
   --network {test,main}        Bitcoin network (default: test)
   --data TEXT                  Data to include in OP_RETURN output
-  --fee-rate INT               Fee rate in sat/vB (default: 2)
+  --fee-rate FLOAT             Fee rate in sat/vB (default: 2.0, supports fractional rates)
   --check-balance              Check wallet balance and available UTXOs
   --history                    Show all historical OP_RETURN transactions
   --utxo-index INT             Index of UTXO to use (if multiple available)
@@ -165,8 +180,12 @@ Options:
   --rpc-password RPC_PASSWORD  Bitcoin Core RPC password
   --rpc-host RPC_HOST          Bitcoin Core RPC host (default: localhost)
   --rpc-port RPC_PORT          Bitcoin Core RPC port (18332 testnet, 8332 mainnet)
+  --rpc-only                   Use ONLY RPC (scantxoutset, no external API)
   -h, --help                   Show help message
 ```
+
+**Environment Variables:**
+- `BITCOIN_OPS_WALLET`: Path to wallet file (overrides `--wallet-file`)
 
 ## Broadcasting Options
 
