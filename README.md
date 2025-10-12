@@ -63,7 +63,7 @@ Visit a Bitcoin testnet faucet and send some coins to your address:
 Once you have funds, create a transaction with custom data:
 
 ```bash
-uv run main.py --data "Remember Me, Bitcoin Ops!"
+uv run main.py --data "Remember Me --- Bitcoin Ops"
 ```
 
 This will:
