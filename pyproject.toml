@@ -1,7 +1,7 @@
 [project]
 name = "bitcoin-ops"
 version = "0.1.0"
-description = "Add your description here"
+description = "Create, sign, inspect, and broadcast Bitcoin data transactions"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

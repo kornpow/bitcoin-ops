@@ -14,6 +14,7 @@ A Python tool for creating and signing Bitcoin transactions with OP_RETURN outpu
 - 🧪 **Testnet & Mainnet Support**: Safe testing on testnet before using mainnet
 - 📡 **Multiple Broadcast Methods**: mempool.space API, local Bitcoin Core RPC, or manual
 - 🔧 **Large OP_RETURN Support**: Bypass 80-byte limit with local node configuration
+- 🛑 **Mainnet Broadcast Guard**: Requires explicit confirmation before any mainnet broadcast
 
 ## Requirements
 
@@ -401,6 +402,7 @@ bitcoin-ops/
 ├── wallet.key        # Your private key (generated on first run, DO NOT COMMIT!)
 ├── pyproject.toml    # UV project configuration
 ├── uv.lock           # Locked dependencies
+├── SECURITY.md       # Vulnerability reporting and operational security policy
 └── README.md         # This file
 ```
 
@@ -421,6 +423,8 @@ bitcoin-ops/
 4. **Testnet vs Mainnet**: Always test on testnet first. Mainnet transactions involve real money!
 
 5. **Backup**: Keep a secure backup of your `wallet.key` file if it contains funds you care about.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and additional operational guidance.
 
 ## Troubleshooting
 

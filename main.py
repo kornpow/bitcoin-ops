@@ -20,6 +20,39 @@ from embit.psbt import PSBT
 from embit.finalizer import finalize_psbt
 
 
+def positive_fee_rate(value: str) -> float:
+    """Parse and validate a positive fee rate."""
+    try:
+        fee_rate = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("fee rate must be a number") from exc
+    if fee_rate <= 0:
+        raise argparse.ArgumentTypeError("fee rate must be greater than zero")
+    return fee_rate
+
+
+def select_utxo(utxos: List[Dict], index: Optional[int] = None) -> Dict:
+    """Select an explicit UTXO or default to the largest available one."""
+    if not utxos:
+        raise ValueError("no UTXOs available")
+    if index is not None:
+        if index < 0 or index >= len(utxos):
+            raise IndexError(f"UTXO index must be between 0 and {len(utxos) - 1}")
+        return utxos[index]
+    return max(utxos, key=lambda utxo: utxo["value"])
+
+
+def confirm_mainnet_broadcast(network: str, assume_yes: bool = False) -> bool:
+    """Require explicit approval before sending a mainnet transaction."""
+    if network != "main" or assume_yes:
+        return True
+    print("\n⚠️  WARNING: This will broadcast to MAINNET (real Bitcoin)!")
+    try:
+        return input("Type 'yes' to confirm: ").strip().lower() == "yes"
+    except EOFError:
+        return False
+
+
 class WalletManager:
     """Manages wallet key generation, loading, and persistence"""
 
@@ -416,6 +449,21 @@ class OPReturnTransactionBuilder:
     ) -> Transaction:
         """Create a transaction with optional OP_RETURN and/or P2WSH witness data outputs."""
 
+        if self.fee_rate <= 0:
+            raise ValueError("fee rate must be greater than zero")
+        if len(utxo_txid) != 64:
+            raise ValueError("UTXO transaction ID must be 64 hexadecimal characters")
+        try:
+            bytes.fromhex(utxo_txid)
+        except ValueError as exc:
+            raise ValueError("UTXO transaction ID must be hexadecimal") from exc
+        if utxo_vout < 0 or utxo_vout >= len(prev_tx.vout):
+            raise IndexError("UTXO output index is outside the previous transaction")
+        if prev_tx.vout[utxo_vout].value != utxo_amount:
+            raise ValueError(
+                "UTXO amount does not match the previous transaction output"
+            )
+
         # Create transaction
         tx = Transaction(version=2, locktime=0)
 
@@ -773,7 +821,7 @@ Environment Variables:
     # --- Common flags ---
     parser.add_argument(
         "--fee-rate",
-        type=float,
+        type=positive_fee_rate,
         default=2.0,
         help="Fee rate in sat/vB (default: 2.0, supports fractional rates like 0.5)",
     )
@@ -827,6 +875,12 @@ Environment Variables:
         dest="broadcast",
         action="store_true",
         help="Automatically broadcast transaction to mempool.space",
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Confirm mainnet broadcast non-interactively (use with extreme care)",
     )
 
     # --- RPC flags (unchanged) ---
@@ -1161,6 +1215,9 @@ Environment Variables:
         print("\n" + "=" * 80)
 
         if args.broadcast:
+            if not confirm_mainnet_broadcast(args.network, args.yes):
+                print("Broadcast cancelled")
+                return
             if args.network == "test":
                 broadcast_url = "https://mempool.space/testnet/api/tx"
             else:
@@ -1194,14 +1251,11 @@ Environment Variables:
         return
 
     # Select UTXO
-    if args.utxo_index is not None:
-        if args.utxo_index >= len(utxos):
-            print(f"✗ Invalid UTXO index. Available: 0-{len(utxos) - 1}")
-            return
-        selected_utxo = utxos[args.utxo_index]
-    else:
-        # Use first (largest) UTXO
-        selected_utxo = utxos[0]
+    try:
+        selected_utxo = select_utxo(utxos, args.utxo_index)
+    except IndexError as e:
+        print(f"✗ Invalid UTXO index: {e}")
+        return
 
     print(f"\n✓ Using UTXO: {selected_utxo['txid']}:{selected_utxo['vout']}")
     print(f"  Amount: {selected_utxo['value']} sats")
@@ -1318,6 +1372,9 @@ Environment Variables:
 
     # Broadcast if requested
     if args.broadcast or args.rpc_url or args.rpc_user:
+        if not confirm_mainnet_broadcast(args.network, args.yes):
+            print("Broadcast cancelled")
+            return
         # Determine broadcast method
         use_rpc = args.rpc_url or args.rpc_user
 
@@ -1414,13 +1471,6 @@ Environment Variables:
                 broadcast_url = "https://mempool.space/testnet/api/tx"
             else:
                 broadcast_url = "https://mempool.space/api/tx"
-                if not args.allow_large_opreturn or max_data_size <= 80:
-                    # Extra confirmation for mainnet
-                    print("⚠️  WARNING: This will broadcast to MAINNET (real Bitcoin)!")
-                    confirm = input("Type 'yes' to confirm: ")
-                    if confirm.lower() != "yes":
-                        print("Broadcast cancelled")
-                        return
 
             try:
                 response = requests.post(broadcast_url, data=tx_hex, timeout=10)
