@@ -3,8 +3,11 @@ from embit import ec, script
 from embit.transaction import Transaction, TransactionOutput
 
 from main import (
+    BitcoinOpsError,
     OPReturnTransactionBuilder,
+    UTXOManager,
     WalletManager,
+    build_parser,
     confirm_mainnet_broadcast,
     positive_fee_rate,
     select_utxo,
@@ -25,6 +28,45 @@ def test_positive_fee_rate_rejects_zero_and_negative_values():
         positive_fee_rate("0")
     with pytest.raises(Exception, match="greater than zero"):
         positive_fee_rate("-1")
+
+
+def test_parser_can_be_used_without_process_arguments():
+    args = build_parser().parse_args(
+        ["--network", "main", "--fee-rate", "3.5", "--op-return", "hello"]
+    )
+    assert args.network == "main"
+    assert args.fee_rate == 3.5
+    assert args.op_return == ["hello"]
+
+
+def test_wallet_load_failure_raises_operational_error(tmp_path):
+    wallet_file = tmp_path / "invalid.key"
+    wallet_file.write_text("not-a-private-key")
+    with pytest.raises(BitcoinOpsError, match="Error loading wallet"):
+        WalletManager(str(wallet_file)).load_or_generate_key()
+
+
+def test_utxo_manager_uses_injected_http_session():
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"txid": "00" * 32, "vout": 0, "value": 1_000}]
+
+    class Session:
+        def __init__(self):
+            self.requested_url = ""
+
+        def get(self, url, timeout):
+            self.requested_url = url
+            assert timeout == 10
+            return Response()
+
+    http = Session()
+    manager = UTXOManager(http=http)
+    assert manager.fetch_utxos("tb1qexample")[0]["value"] == 1_000
+    assert http.requested_url.endswith("/address/tb1qexample/utxo")
 
 
 def test_select_utxo_defaults_to_largest_value():

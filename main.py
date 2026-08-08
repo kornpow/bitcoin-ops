@@ -6,7 +6,6 @@ Creates and signs Bitcoin testnet transactions with OP_RETURN outputs
 
 import argparse
 import os
-import sys
 from typing import Any
 
 import requests
@@ -21,6 +20,10 @@ from requests.exceptions import (
 from requests.exceptions import (
     RequestException,
 )
+
+
+class BitcoinOpsError(Exception):
+    """Base exception for recoverable bitcoin-ops failures."""
 
 
 def positive_fee_rate(value: str) -> float:
@@ -79,8 +82,7 @@ class WalletManager:
         script_pubkey = script.p2wpkh(self.pub_key)
         address = script_pubkey.address(network=self.network)
         if address is None:
-            print("✗ Failed to derive address from public key")
-            sys.exit(1)
+            raise BitcoinOpsError("Failed to derive address from public key")
         self.address = address
 
         return self.priv_key, self.pub_key, self.address
@@ -96,9 +98,8 @@ class WalletManager:
 
             priv_key = ec.PrivateKey.from_wif(wif)
             return priv_key
-        except Exception as e:
-            print(f"✗ Error loading wallet: {e}")
-            sys.exit(1)
+        except (OSError, ValueError) as exc:
+            raise BitcoinOpsError(f"Error loading wallet: {exc}") from exc
 
     def _generate_and_save_key(self) -> ec.PrivateKey:
         """Generate new private key and save to filesystem"""
@@ -122,9 +123,8 @@ class WalletManager:
             print("⚠️  IMPORTANT: Keep this file secure! It contains your private key.")
 
             return priv_key
-        except Exception as e:
-            print(f"✗ Error generating/saving wallet: {e}")
-            sys.exit(1)
+        except (OSError, ValueError) as exc:
+            raise BitcoinOpsError(f"Error generating/saving wallet: {exc}") from exc
 
 
 class UTXOManager:
@@ -136,11 +136,13 @@ class UTXOManager:
         rpc_url: str | None = None,
         use_rpc: bool = False,
         rpc_only: bool = False,
+        http: Any | None = None,
     ):
         self.network_name = network_name
         self.use_rpc = use_rpc
         self.rpc_url = rpc_url
         self.rpc_only = rpc_only
+        self.http = http or requests.Session()
 
         if network_name == "test":
             self.api_base = "https://mempool.space/testnet/api"
@@ -159,7 +161,7 @@ class UTXOManager:
                 "method": method,
                 "params": params,
             }
-            response = requests.post(self.rpc_url, json=payload, timeout=timeout)
+            response = self.http.post(self.rpc_url, json=payload, timeout=timeout)
 
             if response.status_code == 200:
                 result = response.json()
@@ -299,7 +301,7 @@ class UTXOManager:
         try:
             print("  Using mempool.space API...")
             url = f"{self.api_base}/address/{address}/utxo"
-            response = requests.get(url, timeout=10)
+            response = self.http.get(url, timeout=10)
             response.raise_for_status()
             return response.json()
         except RequestException as e:
@@ -342,7 +344,7 @@ class UTXOManager:
         """Fetch transaction by txid from mempool.space API"""
         try:
             url = f"{self.api_base}/tx/{txid}/hex"
-            response = requests.get(url, timeout=10)
+            response = self.http.get(url, timeout=10)
             response.raise_for_status()
             # Parse hex transaction string into Transaction object
             return Transaction.parse(bytes.fromhex(response.text.strip()))
@@ -707,7 +709,7 @@ class OPReturnTransactionBuilder:
         return self._make_push(data)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Create Bitcoin transactions on testnet: OP_RETURN or witness data storage",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -907,7 +909,12 @@ Environment Variables:
         help="Use ONLY local Bitcoin Core RPC (scantxoutset for UTXO discovery, slower but no external API)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None):
+    args = build_parser().parse_args(argv)
+    http = requests.Session()
 
     # Resolve wallet file path - support environment variable and expand paths
     wallet_file = os.getenv("BITCOIN_OPS_WALLET", args.wallet_file)
@@ -930,7 +937,11 @@ Environment Variables:
     print("=" * 80)
 
     wallet_mgr = WalletManager(wallet_file, args.network)
-    _, _, address = wallet_mgr.load_or_generate_key()
+    try:
+        _, _, address = wallet_mgr.load_or_generate_key()
+    except BitcoinOpsError as exc:
+        print(f"✗ {exc}")
+        return
 
     print(f"\n{'Testnet' if args.network == 'test' else 'Mainnet'} Address: {address}")
     print("=" * 80)
@@ -950,7 +961,11 @@ Environment Variables:
 
     # Initialize UTXO manager
     utxo_mgr = UTXOManager(
-        args.network, rpc_url=rpc_url, use_rpc=use_rpc, rpc_only=rpc_only
+        args.network,
+        rpc_url=rpc_url,
+        use_rpc=use_rpc,
+        rpc_only=rpc_only,
+        http=http,
     )
 
     # If using RPC, check that txindex is enabled
@@ -974,7 +989,7 @@ Environment Variables:
 
             # Get address transactions
             tx_url = f"{api_base}/address/{address}/txs"
-            response = requests.get(tx_url, timeout=10)
+            response = http.get(tx_url, timeout=10)
             response.raise_for_status()
             transactions = response.json()
 
@@ -1220,7 +1235,7 @@ Environment Variables:
                 broadcast_url = "https://mempool.space/api/tx"
             print("\n⌛ Broadcasting to mempool.space...")
             try:
-                response = requests.post(broadcast_url, data=tx_hex, timeout=10)
+                response = http.post(broadcast_url, data=tx_hex, timeout=10)
                 if response.status_code == 200:
                     txid = response.text.strip()
                     print("\n✓ Broadcast successful!")
@@ -1408,7 +1423,7 @@ Environment Variables:
                     "params": [tx_hex],
                 }
 
-                response = requests.post(rpc_url, json=rpc_payload, timeout=10)
+                response = http.post(rpc_url, json=rpc_payload, timeout=10)
 
                 if response.status_code == 200:
                     result = response.json()
@@ -1469,7 +1484,7 @@ Environment Variables:
                 broadcast_url = "https://mempool.space/api/tx"
 
             try:
-                response = requests.post(broadcast_url, data=tx_hex, timeout=10)
+                response = http.post(broadcast_url, data=tx_hex, timeout=10)
 
                 if response.status_code == 200:
                     txid = response.text.strip()
