@@ -9,6 +9,12 @@ dependencies = [
     "requests>=2.34.2",
 ]
 
+[project.scripts]
+bitcoin-ops = "bitcoin_ops.cli:main"
+
+[tool.uv]
+package = true
+
 [dependency-groups]
 dev = [
     "prek>=0.4.12",

@@ -1,20 +1,20 @@
-#!/usr/bin/env python3
-"""Backward-compatible script entry point."""
+"""Bitcoin transaction operations toolkit."""
 
-from bitcoin_ops import (
-    BitcoinOpsError,
-    OPReturnTransactionBuilder,
-    UTXOManager,
-    WalletManager,
+from .cli import (
     build_parser,
     confirm_mainnet_broadcast,
     main,
     positive_fee_rate,
     select_utxo,
 )
+from .errors import BitcoinOpsError
+from .providers import BlockchainProvider, UTXOManager
+from .transactions import OPReturnTransactionBuilder
+from .wallet import WalletManager
 
 __all__ = [
     "BitcoinOpsError",
+    "BlockchainProvider",
     "OPReturnTransactionBuilder",
     "UTXOManager",
     "WalletManager",
@@ -24,7 +24,3 @@ __all__ = [
     "positive_fee_rate",
     "select_utxo",
 ]
-
-
-if __name__ == "__main__":
-    main()

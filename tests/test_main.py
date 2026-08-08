@@ -2,6 +2,7 @@ import pytest
 from embit import ec, script
 from embit.transaction import Transaction, TransactionOutput
 
+from bitcoin_ops.providers import BlockchainProvider
 from main import (
     BitcoinOpsError,
     OPReturnTransactionBuilder,
@@ -67,6 +68,11 @@ def test_utxo_manager_uses_injected_http_session():
     manager = UTXOManager(http=http)
     assert manager.fetch_utxos("tb1qexample")[0]["value"] == 1_000
     assert http.requested_url.endswith("/address/tb1qexample/utxo")
+
+
+def test_provider_accepts_configurable_api_endpoint():
+    provider = BlockchainProvider(api_base="https://example.test/custom/")
+    assert provider.api_base == "https://example.test/custom"
 
 
 def test_select_utxo_defaults_to_largest_value():

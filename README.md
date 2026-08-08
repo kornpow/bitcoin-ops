@@ -42,7 +42,7 @@ A Python tool for creating and signing Bitcoin transactions with OP_RETURN outpu
 On first run, the script will automatically generate a new Bitcoin private key and save it to `wallet.key`:
 
 ```bash
-uv run main.py --check-balance
+   uv run bitcoin-ops --check-balance
 ```
 
 This will:
@@ -64,7 +64,7 @@ Visit a Bitcoin testnet faucet and send some coins to your address:
 Once you have funds, create a transaction with custom data:
 
 ```bash
-uv run main.py --data "Remember Me --- Bitcoin Ops"
+uv run bitcoin-ops --data "Remember Me --- Bitcoin Ops"
 ```
 
 This will:
@@ -98,57 +98,57 @@ bitcoin-cli -testnet sendrawtransaction <transaction_hex>
 
 ### Check wallet balance
 ```bash
-uv run main.py --check-balance
+uv run bitcoin-ops --check-balance
 ```
 
 ### View historical OP_RETURN transactions
 ```bash
-uv run main.py --history
+uv run bitcoin-ops --history
 ```
 
 ### Create OP_RETURN with custom data
 ```bash
-uv run main.py --data "Hello Bitcoin!"
+uv run bitcoin-ops --data "Hello Bitcoin!"
 ```
 
 ### Automatically broadcast to mempool.space
 ```bash
-uv run main.py --data "GM Bitcoin!" --broadcast
+uv run bitcoin-ops --data "GM Bitcoin!" --broadcast
 ```
 
 ### Broadcast to local Bitcoin Core node
 ```bash
 # Using separate credentials
-uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass
+uv run bitcoin-ops --data "My message" --rpc-user myuser --rpc-password mypass
 
 # Using full RPC URL
-uv run main.py --data "My message" --rpc-url http://user:pass@localhost:18332
+uv run bitcoin-ops --data "My message" --rpc-url http://user:pass@localhost:18332
 
 # Custom host and port
-uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass --rpc-host 192.168.1.100 --rpc-port 18332
+uv run bitcoin-ops --data "My message" --rpc-user myuser --rpc-password mypass --rpc-host 192.168.1.100 --rpc-port 18332
 ```
 
 ### Use a specific UTXO (if you have multiple)
 ```bash
-uv run main.py --data "My message" --utxo-index 0
+uv run bitcoin-ops --data "My message" --utxo-index 0
 ```
 
 ### Set custom fee rate (sat/vB)
 ```bash
-uv run main.py --data "Important data" --fee-rate 3
+uv run bitcoin-ops --data "Important data" --fee-rate 3
 ```
 
 ### Use custom wallet file
 ```bash
 # Specify a custom wallet file location
-uv run main.py --wallet-file my-wallet.key --data "Hello!"
+uv run bitcoin-ops --wallet-file my-wallet.key --data "Hello!"
 
 # Use a wallet in a different directory (supports ~ expansion)
-uv run main.py --wallet-file ~/.bitcoin-wallets/testnet.key --check-balance
+uv run bitcoin-ops --wallet-file ~/.bitcoin-wallets/testnet.key --check-balance
 
 # Use environment variable for wallet location
 export BITCOIN_OPS_WALLET=~/wallets/testnet.key
-uv run main.py --check-balance
+uv run bitcoin-ops --check-balance
 ```
 
 **Note**: The wallet file path supports:
@@ -160,7 +160,7 @@ uv run main.py --check-balance
 
 ### Use mainnet (⚠️ BE CAREFUL!)
 ```bash
-uv run main.py --network main --data "Mainnet data" --fee-rate 5
+uv run bitcoin-ops --network main --data "Mainnet data" --fee-rate 5
 ```
 
 ## Command-Line Options
@@ -187,6 +187,13 @@ Options:
 
 **Environment Variables:**
 - `BITCOIN_OPS_WALLET`: Path to wallet file (overrides `--wallet-file`)
+- `BITCOIN_OPS_API_URL`: Base URL for a mempool-compatible API (overrides the network default)
+
+## Provider Configuration
+
+By default, `bitcoin-ops` uses mempool.space for address and transaction data. Use `--api-url` or `BITCOIN_OPS_API_URL` to select another mempool-compatible endpoint. Bitcoin Core RPC remains available through `--rpc-url` or the RPC credential flags.
+
+The Python provider API lives in `bitcoin_ops.providers.BlockchainProvider`; `UTXOManager` remains as a compatibility alias.
 
 ## Broadcasting Options
 
@@ -194,7 +201,7 @@ The tool supports three ways to broadcast your transaction:
 
 ### 1. mempool.space API (easiest)
 ```bash
-uv run main.py --data "My message" --broadcast
+uv run bitcoin-ops --data "My message" --broadcast
 ```
 - No setup required
 - Works immediately
@@ -202,7 +209,7 @@ uv run main.py --data "My message" --broadcast
 
 ### 2. Local Bitcoin Core RPC
 ```bash
-uv run main.py --data "My message" --rpc-user myuser --rpc-password mypass
+uv run bitcoin-ops --data "My message" --rpc-user myuser --rpc-password mypass
 ```
 - Requires Bitcoin Core running locally
 - Can handle larger OP_RETURN with custom `-datacarriersize`
@@ -233,7 +240,7 @@ COOKIE_PASS=$(cut -d: -f2 ~/.bitcoin/testnet3/.cookie)
 COOKIE_PASS=$(cut -d: -f2 ~/Library/Application\ Support/Bitcoin/testnet3/.cookie)
 
 # Now use it for your transactions
-uv run main.py --data "Your message" --rpc-user "__cookie__" --rpc-password "$COOKIE_PASS"
+uv run bitcoin-ops --data "Your message" --rpc-user "__cookie__" --rpc-password "$COOKIE_PASS"
 ```
 
 **Cookie file locations:**
@@ -266,7 +273,7 @@ datacarriersize=1000
 
 Then restart Bitcoin Core and use:
 ```bash
-uv run main.py --data "Your data" --rpc-user yourusername --rpc-password yourpassword
+uv run bitcoin-ops --data "Your data" --rpc-user yourusername --rpc-password yourpassword
 ```
 
 ### Bitcoin Core Mempool Policy Configuration
