@@ -481,6 +481,13 @@ Locktime: 0
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
 
+Install and run the Rust-based Git hooks with:
+
+```bash
+uv run prek install
+uv run prek run --all-files
+```
+
 ## License
 
 This project is open source. See LICENSE file for details.

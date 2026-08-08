@@ -4,20 +4,23 @@ Bitcoin OP_RETURN Transaction Creator
 Creates and signs Bitcoin testnet transactions with OP_RETURN outputs
 """
 
+import argparse
 import os
 import sys
-import argparse
+from typing import Any
+
 import requests
+from embit import ec, script
+from embit.finalizer import finalize_psbt
+from embit.networks import NETWORKS
+from embit.psbt import PSBT
+from embit.transaction import Transaction, TransactionInput, TransactionOutput, Witness
 from requests.exceptions import (
-    RequestException,
     ConnectionError as RequestsConnectionError,
 )
-from typing import Any, Optional, Tuple, List, Dict
-from embit import script, ec
-from embit.networks import NETWORKS
-from embit.transaction import Transaction, TransactionInput, TransactionOutput, Witness
-from embit.psbt import PSBT
-from embit.finalizer import finalize_psbt
+from requests.exceptions import (
+    RequestException,
+)
 
 
 def positive_fee_rate(value: str) -> float:
@@ -31,7 +34,7 @@ def positive_fee_rate(value: str) -> float:
     return fee_rate
 
 
-def select_utxo(utxos: List[Dict], index: Optional[int] = None) -> Dict:
+def select_utxo(utxos: list[dict], index: int | None = None) -> dict:
     """Select an explicit UTXO or default to the largest available one."""
     if not utxos:
         raise ValueError("no UTXOs available")
@@ -59,11 +62,11 @@ class WalletManager:
     def __init__(self, wallet_file: str = "wallet.key", network_name: str = "test"):
         self.wallet_file = wallet_file
         self.network = NETWORKS[network_name]
-        self.priv_key: Optional[ec.PrivateKey] = None
-        self.pub_key: Optional[ec.PublicKey] = None
-        self.address: Optional[str] = None
+        self.priv_key: ec.PrivateKey | None = None
+        self.pub_key: ec.PublicKey | None = None
+        self.address: str | None = None
 
-    def load_or_generate_key(self) -> Tuple[ec.PrivateKey, ec.PublicKey, str]:
+    def load_or_generate_key(self) -> tuple[ec.PrivateKey, ec.PublicKey, str]:
         """Load existing key or generate new one and save to filesystem"""
         if os.path.exists(self.wallet_file):
             print(f"✓ Loading existing wallet from {self.wallet_file}")
@@ -85,7 +88,7 @@ class WalletManager:
     def _load_key(self) -> ec.PrivateKey:
         """Load private key from wallet file"""
         try:
-            with open(self.wallet_file, "r") as f:
+            with open(self.wallet_file) as f:
                 wif = f.read().strip()
 
             if not wif:
@@ -130,7 +133,7 @@ class UTXOManager:
     def __init__(
         self,
         network_name: str = "test",
-        rpc_url: Optional[str] = None,
+        rpc_url: str | None = None,
         use_rpc: bool = False,
         rpc_only: bool = False,
     ):
@@ -144,7 +147,7 @@ class UTXOManager:
         else:
             self.api_base = "https://mempool.space/api"
 
-    def _rpc_call(self, method: str, params: List, timeout: int = 10) -> Any:
+    def _rpc_call(self, method: str, params: list, timeout: int = 10) -> Any:
         """Make an RPC call to Bitcoin Core"""
         if not self.rpc_url:
             return None
@@ -197,20 +200,17 @@ class UTXOManager:
             )
             test_result = self._rpc_call("getrawtransaction", [test_txid, False])
 
-            if test_result:
-                return True
-            else:
-                return False
+            return bool(test_result)
         return False
 
-    def fetch_utxos(self, address: str) -> List[Dict]:
+    def fetch_utxos(self, address: str) -> list[dict]:
         """Fetch all UTXOs for an address from RPC or mempool.space API"""
         if self.use_rpc and self.rpc_url:
             return self._fetch_utxos_rpc(address)
         else:
             return self._fetch_utxos_api(address)
 
-    def _fetch_utxos_rpc(self, address: str) -> List[Dict]:
+    def _fetch_utxos_rpc(self, address: str) -> list[dict]:
         """Fetch UTXOs using Bitcoin Core RPC"""
         try:
             if self.rpc_only:
@@ -294,7 +294,7 @@ class UTXOManager:
                 return self._fetch_utxos_api(address)
             return []
 
-    def _fetch_utxos_api(self, address: str) -> List[Dict]:
+    def _fetch_utxos_api(self, address: str) -> list[dict]:
         """Fetch all UTXOs for an address from mempool.space API"""
         try:
             print("  Using mempool.space API...")
@@ -306,14 +306,14 @@ class UTXOManager:
             print(f"✗ Error fetching UTXOs: {e}")
             return []
 
-    def fetch_transaction(self, txid: str) -> Optional[Transaction]:
+    def fetch_transaction(self, txid: str) -> Transaction | None:
         """Fetch transaction by txid from RPC or API"""
         if self.use_rpc and self.rpc_url:
             return self._fetch_transaction_rpc(txid)
         else:
             return self._fetch_transaction_api(txid)
 
-    def _fetch_transaction_rpc(self, txid: str) -> Optional[Transaction]:
+    def _fetch_transaction_rpc(self, txid: str) -> Transaction | None:
         """Fetch transaction using Bitcoin Core RPC (requires txindex=1)"""
         try:
             result = self._rpc_call("getrawtransaction", [txid, False])
@@ -338,7 +338,7 @@ class UTXOManager:
             print("  Make sure txindex=1 is enabled in bitcoin.conf")
             return None
 
-    def _fetch_transaction_api(self, txid: str) -> Optional[Transaction]:
+    def _fetch_transaction_api(self, txid: str) -> Transaction | None:
         """Fetch transaction by txid from mempool.space API"""
         try:
             url = f"{self.api_base}/tx/{txid}/hex"
@@ -353,7 +353,7 @@ class UTXOManager:
             print(f"✗ Error parsing transaction: {e}")
             return None
 
-    def display_utxos(self, utxos: List[Dict]) -> None:
+    def display_utxos(self, utxos: list[dict]) -> None:
         """Display available UTXOs in a formatted way"""
         if not utxos:
             print("No UTXOs found for this address.")
@@ -443,9 +443,9 @@ class OPReturnTransactionBuilder:
         utxo_txid: str,
         utxo_vout: int,
         utxo_amount: int,
-        op_return_data_list: List[bytes],
+        op_return_data_list: list[bytes],
         prev_tx: Transaction,
-        witness_data: Optional[bytes] = None,
+        witness_data: bytes | None = None,
     ) -> Transaction:
         """Create a transaction with optional OP_RETURN and/or P2WSH witness data outputs."""
 
@@ -505,8 +505,7 @@ class OPReturnTransactionBuilder:
         estimated_vsize = 10 + 68 + total_op_return_size + p2wsh_output_size + 31
         fee = int(self.fee_rate * estimated_vsize)
 
-        if fee < 1:
-            fee = 1
+        fee = max(fee, 1)
 
         # Calculate change: subtract fee and the sats locked in P2WSH output
         p2wsh_locked = P2WSH_DUST if witness_data is not None else 0
@@ -536,7 +535,7 @@ class OPReturnTransactionBuilder:
         utxo_txid: str,
         utxo_vout: int,
         prev_output: TransactionOutput,
-        witness_data: Optional[bytes] = None,
+        witness_data: bytes | None = None,
     ) -> Transaction:
         """Sign a P2WPKH input spending transaction using PSBT.
 
@@ -570,8 +569,8 @@ class OPReturnTransactionBuilder:
         p2wsh_vout: int,
         p2wsh_amount: int,
         witness_data: bytes,
-        extra_utxo: Optional[Dict] = None,
-        extra_prev_tx: Optional[Transaction] = None,
+        extra_utxo: dict | None = None,
+        extra_prev_tx: Transaction | None = None,
     ) -> Transaction:
         """Spend a P2WSH witness-data output, revealing the witness script on-chain.
 
@@ -931,7 +930,7 @@ Environment Variables:
     print("=" * 80)
 
     wallet_mgr = WalletManager(wallet_file, args.network)
-    priv_key, pub_key, address = wallet_mgr.load_or_generate_key()
+    _, _, address = wallet_mgr.load_or_generate_key()
 
     print(f"\n{'Testnet' if args.network == 'test' else 'Mainnet'} Address: {address}")
     print("=" * 80)
@@ -945,10 +944,7 @@ Environment Variables:
         use_rpc = True
     elif args.rpc_user and args.rpc_password:
         # Default ports
-        if args.rpc_port:
-            port = args.rpc_port
-        else:
-            port = 18332 if args.network == "test" else 8332
+        port = args.rpc_port or (18332 if args.network == "test" else 8332)
         rpc_url = f"http://{args.rpc_user}:{args.rpc_password}@{args.rpc_host}:{port}"
         use_rpc = True
 
@@ -1132,7 +1128,7 @@ Environment Variables:
             if val == "":
                 if file_text is None:
                     try:
-                        with open(os.path.expanduser(args.file), "r") as f:
+                        with open(os.path.expanduser(args.file)) as f:
                             file_text = f.read()
                     except Exception as e:
                         print(f"✗ Error reading file: {e}")
@@ -1417,7 +1413,7 @@ Environment Variables:
                 if response.status_code == 200:
                     result = response.json()
 
-                    if "error" in result and result["error"]:
+                    if result.get("error"):
                         print(f"\n✗ RPC error: {result['error']}")
 
                         # Provide helpful error messages
